@@ -1,17 +1,12 @@
-﻿using System;
-using Microsoft.Xna.Framework;
+﻿using DiscordRPC;
+using DiscordRPC.Message;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
-using StardewModdingAPI.Utilities;
 using StardewValley;
-using DiscordRPC;
-using System.Text.RegularExpressions;
-using System.Linq;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using DiscordRPC.Message;
 using StardewValley.Menus;
+using System;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace StardewRPC
 {
@@ -22,7 +17,7 @@ namespace StardewRPC
 
         public override void Entry(IModHelper helper)
         {
-            helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
+            helper.Events.GameLoop.UpdateTicking += this.OnTick;
             client = new DiscordRpcClient(ClientID);
             client.Initialize();
             client.SetPresence(new RichPresence()
@@ -39,21 +34,12 @@ namespace StardewRPC
             });
         }
 
-        private void OnGameLaunched(object sender, GameLaunchedEventArgs e)
+        private void OnTick(object sender, UpdateTickingEventArgs e)
         {
-            RunLoop();
-        }
-
-        private Task RunLoop()
-        {
-            return Task.Run(() =>
+            if (e.IsMultipleOf(120))
             {
-                while (true)
-                {
-                    client.SetPresence(GenerateRichPresence());
-                    SpinWait.SpinUntil(() => false, TimeSpan.FromSeconds(5));
-                }
-            });
+                client.SetPresence(GenerateRichPresence());
+            }
         }
 
         private RichPresence GenerateRichPresence()
@@ -98,7 +84,7 @@ namespace StardewRPC
                 },
                 Details = Helper.Translation.Get("location.main-menu")
             };
-        }  
+        }
 
         private string GetEnvironmentInfo()
         {
@@ -124,22 +110,34 @@ namespace StardewRPC
 
             string weather;
             if (Game1.isRaining)
-                weather =  Game1.isLightning ? Helper.Translation.Get("weather.storm") : Helper.Translation.Get("weather.rainy");
+            {
+                weather = Game1.isLightning ? Helper.Translation.Get("weather.storm") : Helper.Translation.Get("weather.rainy");
+            }
             else if (Game1.isDebrisWeather)
+            {
                 weather = Helper.Translation.Get("weather.windy");
+            }
             else if (Game1.isSnowing)
+            {
                 weather = Helper.Translation.Get("weather.snow");
+            }
             else if (Game1.weddingToday)
+            {
                 weather = Helper.Translation.Get("weather.wedding");
+            }
             else if (Game1.isFestival())
+            {
                 weather = Helper.Translation.Get("weather.festival");
+            }
             else
+            {
                 weather = Helper.Translation.Get("weather.sunny");
-            
+            }
+
             string season = Game1.CurrentSeasonDisplayName;
             season = char.ToUpper(season[0]) + season.Substring(1);
 
-            return Helper.Translation.Get("environment-info", new { time, season, weather});
+            return Helper.Translation.Get("environment-info", new { time, season, weather });
         }
         private string GetFarmInfo()
         {
@@ -148,15 +146,30 @@ namespace StardewRPC
         private string GetWeather()
         {
             if (Game1.isRaining)
+            {
                 return Game1.isLightning ? "storm" : "rainy";
+            }
+
             if (Game1.isDebrisWeather)
+            {
                 return "windy_" + Game1.currentSeason;
+            }
+
             if (Game1.isSnowing)
+            {
                 return "snow";
+            }
+
             if (Game1.weddingToday)
+            {
                 return "wedding";
+            }
+
             if (Game1.isFestival())
+            {
                 return "festival";
+            }
+
             return "sunny";
         }
         private string GetCurrentLocation()
@@ -171,9 +184,13 @@ namespace StardewRPC
         private void JoinParty(object sender, JoinMessage args)
         {
             object lobby = Program.sdk.Networking.GetLobbyFromInviteCode(args.Secret);
-            if (lobby == null) return;
+            if (lobby == null)
+            {
+                return;
+            }
+
             Game1.ExitToTitle(() => { TitleMenu.subMenu = new FarmhandMenu(Program.sdk.Networking.CreateClient(lobby)); });
         }
-   
+
     }
 }
