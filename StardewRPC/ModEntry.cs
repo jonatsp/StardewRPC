@@ -5,6 +5,13 @@ using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
 using StardewValley;
 using DiscordRPC;
+using System.Text.RegularExpressions;
+using System.Linq;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using DiscordRPC.Message;
+using StardewValley.Menus;
 
 namespace StardewRPC
 {
@@ -12,64 +19,92 @@ namespace StardewRPC
     {
         private string ClientID = "496310150995509268";
         private DiscordRpcClient client;
-        private string season;
 
         public override void Entry(IModHelper helper)
         {
-            IGameLoopEvents gameLoop = helper.Events.GameLoop;
-            gameLoop.GameLaunched += this.OnGameLaunched;
-            gameLoop.UpdateTicked += this.OnUpdateTicked;
-            gameLoop.SaveLoaded += this.OnSaveLoaded;
-            gameLoop.TimeChanged += this.OnTimeChanged;
-            gameLoop.ReturnedToTitle += this.OnReturnedToTitle;
-            helper.Events.Player.Warped += this.OnWarp;
-        }
-        
-        private void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
-        {
-            client.Invoke();
-        }
-
-        private void OnSaveLoaded(object sender, SaveLoadedEventArgs e)
-        {
-            client.UpdateDetails("In the Farm House, " + season);
-        }
-
-        private void OnReturnedToTitle(object sender, ReturnedToTitleEventArgs e)
-        {
-            client.UpdateDetails("On the main screen");
-            client.UpdateState("");
-        }
-
-        private void OnGameLaunched(object sender, GameLaunchedEventArgs e)
-        {
+            helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
             client = new DiscordRpcClient(ClientID);
             client.Initialize();
             client.SetPresence(new RichPresence()
             {
-                Details = "On the main screen", 
+                Details = helper.Translation.Get("loading"),
                 Assets = new Assets()
                 {
                     LargeImageKey = "icon"
+                },
+                Timestamps = new Timestamps()
+                {
+                    Start = DateTime.UtcNow
                 }
             });
-           
-
         }
 
-
-      
-
-        private void OnWarp(object sender, WarpedEventArgs e)
+        private void OnGameLaunched(object sender, GameLaunchedEventArgs e)
         {
-            client.UpdateDetails("At the " + e.NewLocation + ", " + season);
+            RunLoop();
         }
 
-        private void OnTimeChanged(object sender, TimeChangedEventArgs e)
+        private Task RunLoop()
         {
-            int tme = e.NewTime;
-            string time = tme.ToString().PadLeft(4, '0').Insert(2, ":");
-            if(tme > 2350)
+            return Task.Run(() =>
+            {
+                while (true)
+                {
+                    client.SetPresence(GenerateRichPresence());
+                    SpinWait.SpinUntil(() => false, TimeSpan.FromSeconds(5));
+                }
+            });
+        }
+
+        private RichPresence GenerateRichPresence()
+        {
+            if (Context.IsWorldReady)
+            {
+                RichPresence rp = new RichPresence()
+                {
+                    Details = GetCurrentLocation(),
+                    State = Helper.Translation.Get("mode.solo"),
+                    Assets = new Assets()
+                    {
+                        LargeImageKey = "icon",
+                        LargeImageText = GetFarmInfo(),
+                        SmallImageKey = GetWeather(),
+                        SmallImageText = GetEnvironmentInfo(),
+
+                    }
+                };
+                if (Context.IsMultiplayer)
+                {
+                    rp.Party = new Party()
+                    {
+                        Max = Game1.getFarm().getNumberBuildingsConstructed("Cabin") + 1,
+                        Size = Game1.numberOfPlayers(),
+                        ID = Game1.MasterPlayer.UniqueMultiplayerID.ToString()
+                    };
+                    rp.State = Helper.Translation.Get("mode.multiplayer");
+                    rp.Secrets = new Secrets()
+                    {
+                        JoinSecret = Game1.server.getInviteCode()
+                    };
+                    client.OnJoin += JoinParty;
+                }
+                return rp;
+            }
+            return new RichPresence()
+            {
+                Assets = new Assets()
+                {
+                    LargeImageKey = "icon"
+                },
+                Details = Helper.Translation.Get("location.main-menu")
+            };
+        }  
+
+        private string GetEnvironmentInfo()
+        {
+            int timeOfDay = Game1.timeOfDay;
+            string time = timeOfDay.ToString().PadLeft(4, '0').Insert(2, ":");
+            if (timeOfDay > 2350)
             {
                 string a = time.Split(':')[0];
                 string b = time.Split(':')[1].Replace(":", "");
@@ -86,37 +121,59 @@ namespace StardewRPC
                         break;
                 }
             }
-            client.UpdateState(Game1.player.farmName.Value + " Farm (" + Game1.player.money + "g)");
-            switch (Game1.weatherIcon)
-            {
-                case 2:
-                    client.UpdateSmallAsset("sunny", "Sunny - " + time);
-                    break;
-                case 7:
-                    client.UpdateSmallAsset("snow", "Snowing - " + time);
-                    break;
-                case 0:
-                    client.UpdateSmallAsset("wedding", "Wedding - " + time);
-                    break;
-                case 1:
-                    client.UpdateSmallAsset("festival", "Festival - " + time);
-                    break;
-                case 4:
-                    client.UpdateSmallAsset("rainy", "Rainy - " + time);
-                    break;
-                case 5:
-                    client.UpdateSmallAsset("storm", "Stormy - " + time);
-                    break;
-                case 3:
-                    client.UpdateSmallAsset("windy_spring", "Windy - " + time);
-                    break;
-                case 6:
-                    client.UpdateSmallAsset("windy_fall", "Windy - " + time);
-                    break;
 
-            }
+            string weather;
+            if (Game1.isRaining)
+                weather =  Game1.isLightning ? Helper.Translation.Get("weather.storm") : Helper.Translation.Get("weather.rainy");
+            else if (Game1.isDebrisWeather)
+                weather = Helper.Translation.Get("weather.windy");
+            else if (Game1.isSnowing)
+                weather = Helper.Translation.Get("weather.snow");
+            else if (Game1.weddingToday)
+                weather = Helper.Translation.Get("weather.wedding");
+            else if (Game1.isFestival())
+                weather = Helper.Translation.Get("weather.festival");
+            else
+                weather = Helper.Translation.Get("weather.sunny");
+            
+            string season = Game1.CurrentSeasonDisplayName;
+            season = char.ToUpper(season[0]) + season.Substring(1);
+
+            return Helper.Translation.Get("environment-info", new { time, season, weather});
         }
-       
+        private string GetFarmInfo()
+        {
+            return Helper.Translation.Get("farm-info", new { name = Game1.player.farmName.Value, type = Helper.Translation.Get("farm-type." + Game1.whichFarm.ToString()), money = Game1.player.money.ToString() });
+        }
+        private string GetWeather()
+        {
+            if (Game1.isRaining)
+                return Game1.isLightning ? "storm" : "rainy";
+            if (Game1.isDebrisWeather)
+                return "windy_" + Game1.currentSeason;
+            if (Game1.isSnowing)
+                return "snow";
+            if (Game1.weddingToday)
+                return "wedding";
+            if (Game1.isFestival())
+                return "festival";
+            return "sunny";
+        }
+        private string GetCurrentLocation()
+        {
+            var name = String.Join("-", Regex.Matches(Game1.currentLocation.Name, @"[A-Z]+(?=[A-Z][a-z]+)|\d|[A-Z][a-z]+")
+                    .Cast<Match>()
+                    .Select(m => m.Value)
+                    .ToArray()).ToLower();
+            return Helper.Translation.Get("location." + name);
+        }
 
+        private void JoinParty(object sender, JoinMessage args)
+        {
+            object lobby = Program.sdk.Networking.GetLobbyFromInviteCode(args.Secret);
+            if (lobby == null) return;
+            Game1.ExitToTitle(() => { TitleMenu.subMenu = new FarmhandMenu(Program.sdk.Networking.CreateClient(lobby)); });
+        }
+   
     }
 }

@@ -1,10 +1,10 @@
 ﻿{
   "Name": "StardewRPC",
   "Author": "jonatsp",
-  "Version": "1.0.0",
+  "Version": "2.0.0",
   "Description": "Adds Rich Presence to your Stardew Valley.",
   "UniqueID": "jonatsp.StardewRPC",
   "EntryDll": "StardewRPC.dll",
-  "MinimumApiVersion": "2.10.1",
+  "MinimumApiVersion": "2.11.0",
   "UpdateKeys": []
 }
